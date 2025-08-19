@@ -663,15 +663,34 @@ function animateBarTo(index, target, duration=900){
   });
 }
 
-// Klick-Handler: finde die angeklickte Säule und animiere nur diese
+// Klick-Handler: wähle Kategorie nach X-Position (auch wenn Balken 0% hoch ist)
 async function handleChartClick(evt){
   if (!forecastChart || animating) return;
-  // „nearest“ + intersect=true → exakt angeklickte Bar
-  const elems = forecastChart.getElementsAtEventForMode(evt, 'nearest', {intersect:true}, true);
+
+  // Immer nach Index auswählen, intersect:false erlaubt Klick auch bei 0%-Balken
+  let elems = forecastChart.getElementsAtEventForMode(
+    evt,
+    'index',
+    { intersect: false },   // <— entscheidend!
+    true
+  );
+
+  // Fallback
+  if (!elems || !elems.length) {
+    elems = forecastChart.getElementsAtEventForMode(
+      evt,
+      'nearest',
+      { intersect: false },
+      true
+    );
+  }
   if (!elems || !elems.length) return;
+
   const idx = elems[0].index;
   const target = forecastList[idx].pct || 0;
-  if ((forecastList[idx].shownPct||0) >= target) return; // bereits voll
+
+  if ((forecastList[idx].shownPct || 0) >= target) return;
+
   animating = true;
   await animateBarTo(idx, target, 900);
   animating = false;
