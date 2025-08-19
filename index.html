@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Koalitionsrechner – Proportionale Sitzverteilung</title>
+
+<!-- Chart.js + Datalabels für Prognose -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+
+<style>
+  :root { --bg:#0b0f14; --card:#121823; --ink:#e8eef7; --muted:#a6b0bf; --ok:#37d07a; --bad:#ff6a6a; --radius:14px; }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px; color:var(--ink);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial;
+    background:radial-gradient(1200px 800px at 80% -20%, #1b2b45 0%, #0b0f14 55%);
+  }
+  h1{margin:0 0 8px; font-size:clamp(20px,2.6vw,32px)}
+  p.sub{margin:0 0 24px; color:var(--muted)}
+  .wrap{display:grid; gap:16px; grid-template-columns:380px 1fr}
+  @media (max-width:980px){.wrap{grid-template-columns:1fr}}
+
+  .card{
+    background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01));
+    border:1px solid rgba(255,255,255,.06);
+    border-radius:var(--radius); padding:16px;
+  }
+  .row{display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap}
+  .row>*{flex:1}
+  input,select,button{
+    border-radius:10px; border:1px solid rgba(255,255,255,.12);
+    background:#0f1420; color:var(--ink); padding:10px 12px;
+  }
+  input[type="color"]{padding:0; height:38px; width:100%}
+  button{cursor:pointer; font-weight:600}
+  button.secondary{background:#0f1420}
+
+  .party-row{
+    display:grid; grid-template-columns:26px 1.3fr .9fr .8fr 1fr 26px;
+    gap:8px; align-items:center; margin:8px 0;
+  }
+  .party-row .handle{opacity:.6; text-align:center; font-size:12px}
+  .party-row .del{opacity:.8; cursor:pointer; text-align:center}
+
+  .legend{display:flex; flex-wrap:wrap; gap:8px}
+  .legend .item{
+    display:flex; align-items:center; gap:8px; font-size:13px;
+    background:#0f1420; border:1px solid rgba(255,255,255,.08);
+    padding:6px 10px; border-radius:999px;
+  }
+  .sw{width:14px; height:14px; border-radius:4px; display:inline-block; border:1px solid rgba(255,255,255,.3)}
+
+  .pill{display:inline-flex; align-items:center; gap:8px; font-size:13px;
+        padding:6px 10px; border-radius:999px; background:#0f1420; border:1px solid rgba(255,255,255,.08)}
+  .checklist{display:flex; flex-wrap:wrap; gap:10px}
+  .checklist label{display:flex; align-items:center; gap:8px;
+        border:1px solid rgba(255,255,255,.08); padding:8px 10px; border-radius:999px; background:#0f1420}
+  .ok{color:var(--ok)} .bad{color:var(--bad)}
+  svg{display:block; width:100%; height:auto}
+
+  /* Halbkreis-Animation */
+  .arc{opacity:1; transition:opacity .35s ease, transform .35s ease}
+  .arc.enter{opacity:0; transform:translate(-18px,22px) scale(0.96)}
+
+  /* Overlay für Prognose */
+  .ard-overlay{position:fixed; inset:0; background:rgba(5,10,20,.6); backdrop-filter:blur(6px);
+    display:none; align-items:center; justify-content:center; z-index:9999}
+  .ard-panel{width:min(1060px,96vw); max-height:92vh; overflow:auto;
+    background:linear-gradient(180deg,#0b1e3a 0%, #0a1730 100%);
+    border:1px solid rgba(255,255,255,.12); border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.45);
+    color:#eaf2ff; padding:18px}
+  .ard-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px}
+  .ard-title{font-weight:800; letter-spacing:.5px; text-transform:uppercase; font-size:18px}
+  .ard-sub{opacity:.8; font-size:12px}
+  .ard-progline{height:2px; background:linear-gradient(90deg,#ffe066,#7cc6ff); opacity:.7; margin:6px 0 10px; border-radius:2px}
+  .ard-colchart{display:flex; align-items:flex-end; gap:18px; height:360px; background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:18px}
+  .ard-foot{display:flex; gap:8px; justify-content:flex-end; margin-top:12px}
+  .ard-btn{border:1px solid rgba(255,255,255,.18); background:#0d2547; color:#eaf2ff; padding:8px 12px; border-radius:10px; cursor:pointer; font-weight:700}
+  .ard-btn.secondary{background:#0e1a33}
+</style>
+</head>
+<body>
+  <h1>Koalitionsrechner – Proportionale Sitzverteilung</h1>
+  <p class="sub">Koalitionen testen, Historik 1949–2025. Prognose-Overlay: ARD-artige Säulen, per Klick fährt die angeklickte Partei hoch.</p>
+
+  <div class="wrap">
+    <!-- Eingaben -->
+    <section class="card" id="inputsCard">
+      <div class="row">
+        <div><label>Gesamtsitze</label><input id="totalSeats" type="number" value="630"></div>
+        <div><label>Sperrklausel (%)</label><input id="threshold" type="number" value="5" step="0.1"></div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Wahlverfahren</label>
+          <select id="method">
+            <option value="sls" selected>Sainte-Laguë/Schepers</option>
+            <option value="dhondt">d’Hondt</option>
+            <option value="hare">Hare-Niemeyer</option>
+          </select>
+        </div>
+        <div><label>Ausnahmen (z. B. SSW)</label><input id="exceptions" placeholder="SSW"></div>
+      </div>
+
+      <div class="row" style="justify-content:space-between">
+        <button id="addRowBtn" type="button">+ Partei hinzufügen</button>
+        <div style="display:flex; gap:8px">
+          <button id="resetBtn" class="secondary" type="button">Zurücksetzen</button>
+          <button id="calcBtn" type="button">Neu berechnen</button>
+        </div>
+      </div>
+
+      <div class="muted" style="margin:6px 0 4px">Parteien & Prozentwerte (Name, % und Farbe frei wählbar)</div>
+      <div id="partyList"></div>
+
+      <hr style="border:none;border-top:1px solid rgba(255,255,255,.08); margin:14px 0">
+      <h3 style="margin:4px 0 8px">🕰️ Zeitreise – historische Ergebnisse</h3>
+      <div class="row">
+        <div>
+          <label>Historische Presets (1949–2025)</label>
+          <select id="historyPreset"></select>
+        </div>
+        <div>
+          <label>Eigenes CSV/JSON</label>
+          <input id="historyFile" type="file" accept=".csv,.json">
+        </div>
+      </div>
+      <div class="row">
+        <button id="loadPresetBtn" type="button">Preset laden</button>
+        <button id="loadFileBtn" class="secondary" type="button">Datei importieren</button>
+      </div>
+      <p class="sub" style="font-size:12px; margin-top:4px">
+        CSV-Format: <code>name,pct,color[,exception]</code> – Beispiel: <code>SPD,25.7,#E3000F,true</code>
+      </p>
+    </section>
+
+    <!-- Visualisierung (Hauptansicht) -->
+    <section class="card">
+      <svg id="seatChart" viewBox="0 0 900 650" preserveAspectRatio="xMidYMin meet"></svg>
+      <div class="legend" id="legend"></div>
+
+      <div class="row" style="margin-top:12px">
+        <div class="pill"><strong>Mehrheitsschwelle:</strong> <span id="majorityLbl">316</span></div>
+        <div class="pill"><strong>Sitze Koalition:</strong> <span id="coalSeats">0</span></div>
+        <div class="pill"><strong>Mehrheit?</strong> <span id="coalMajority" class="bad">nein</span></div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <h3 style="margin:0 0 8px">Koalitionen testen</h3>
+        <div class="checklist" id="coalitionChecklist"></div>
+        <div class="row" style="margin-top:8px">
+          <label style="flex:1">Vordefinierte Koalition</label>
+          <select id="presetCoalition" style="flex:2">
+            <option value="">– auswählen –</option>
+            <option value="Schwarz-Rot (Groko)">Schwarz-Rot (Groko)</option>
+            <option value="Schwarz-Grün">Schwarz-Grün</option>
+            <option value="Schwarz-Gelb">Schwarz-Gelb</option>
+            <option value="Jamaika-Koalition">Jamaika-Koalition</option>
+            <option value="Deutschland-Koalition">Deutschland-Koalition</option>
+            <option value="Ampel-Koalition">Ampel-Koalition</option>
+            <option value="Kenia-Koalition">Kenia-Koalition</option>
+            <option value="Brombeer-Koalition">Brombeer-Koalition</option>
+            <option value="Rot-Rot-Grün">Rot-Rot-Grün</option>
+            <option value="Rot-Grün-Rot">Rot-Grün-Rot</option>
+            <option value="Grün-Rot-Rot">Grün-Rot-Rot</option>
+            <option value="SPD-BSW">SPD-BSW</option>
+            <option value="Rot-Grün">Rot-Grün</option>
+            <option value="Sozialliberale Koalition">Sozialliberale Koalition</option>
+            <option value="Grün-Liberale Koalition">Grün-Liberale Koalition</option>
+            <option value="Rot-Rote Koalition">Rot-Rote Koalition</option>
+          </select>
+        </div>
+        <div class="row">
+          <button id="showArdBtn" type="button">ARD-Prognose starten</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+<!-- ===== Datensätze 1949–2025 (kompakt) ===== -->
+<script id="HIST_DATA" type="application/json">
+{
+  "1949":[{"name":"CDU/CSU","pct":31.0,"color":"#000000"},{"name":"SPD","pct":29.2,"color":"#E3000F"},{"name":"FDP","pct":11.9,"color":"#FFED00"},{"name":"KPD","pct":5.7,"color":"#BF0000"},{"name":"BP","pct":4.2,"color":"#888888"},{"name":"DP","pct":4.0,"color":"#888888"},{"name":"Zentrum","pct":3.1,"color":"#999999"},{"name":"WAV","pct":2.9,"color":"#999999"}],
+  "1953":[{"name":"CDU/CSU","pct":45.2,"color":"#000000"},{"name":"SPD","pct":28.8,"color":"#E3000F"},{"name":"FDP","pct":9.5,"color":"#FFED00"},{"name":"GB/BHE","pct":5.9,"color":"#999999"},{"name":"DP","pct":3.3,"color":"#999999"},{"name":"BP","pct":3.1,"color":"#888888"}],
+  "1957":[{"name":"CDU/CSU","pct":50.2,"color":"#000000"},{"name":"SPD","pct":31.8,"color":"#E3000F"},{"name":"FDP","pct":7.7,"color":"#FFED00"}],
+  "1961":[{"name":"CDU/CSU","pct":45.3,"color":"#000000"},{"name":"SPD","pct":36.2,"color":"#E3000F"},{"name":"FDP","pct":12.8,"color":"#FFED00"}],
+  "1965":[{"name":"CDU/CSU","pct":47.6,"color":"#000000"},{"name":"SPD","pct":39.3,"color":"#E3000F"},{"name":"FDP","pct":9.5,"color":"#FFED00"},{"name":"NPD","pct":2.0,"color":"#777777"}],
+  "1969":[{"name":"CDU/CSU","pct":46.1,"color":"#000000"},{"name":"SPD","pct":42.7,"color":"#E3000F"},{"name":"FDP","pct":5.8,"color":"#FFED00"},{"name":"NPD","pct":4.3,"color":"#777777"}],
+  "1972":[{"name":"SPD","pct":45.8,"color":"#E3000F"},{"name":"CDU/CSU","pct":44.9,"color":"#000000"},{"name":"FDP","pct":8.4,"color":"#FFED00"}],
+  "1976":[{"name":"CDU/CSU","pct":48.6,"color":"#000000"},{"name":"SPD","pct":42.6,"color":"#E3000F"},{"name":"FDP","pct":7.9,"color":"#FFED00"}],
+  "1980":[{"name":"CDU/CSU","pct":44.5,"color":"#000000"},{"name":"SPD","pct":42.9,"color":"#E3000F"},{"name":"FDP","pct":10.6,"color":"#FFED00"}],
+  "1983":[{"name":"CDU/CSU","pct":48.8,"color":"#000000"},{"name":"SPD","pct":38.2,"color":"#E3000F"},{"name":"FDP","pct":7.0,"color":"#FFED00"},{"name":"Grüne","pct":5.6,"color":"#1FA12E"}],
+  "1987":[{"name":"CDU/CSU","pct":44.3,"color":"#000000"},{"name":"SPD","pct":37.0,"color":"#E3000F"},{"name":"FDP","pct":9.1,"color":"#FFED00"},{"name":"Grüne","pct":8.3,"color":"#1FA12E"}],
+  "1990":[{"name":"CDU/CSU","pct":43.8,"color":"#000000"},{"name":"SPD","pct":33.5,"color":"#E3000F"},{"name":"FDP","pct":11.0,"color":"#FFED00"},{"name":"Grüne/B90","pct":5.1,"color":"#1FA12E"},{"name":"PDS","pct":2.4,"color":"#BE3075"},{"name":"REP","pct":2.1,"color":"#777777"}],
+  "1994":[{"name":"CDU/CSU","pct":41.4,"color":"#000000"},{"name":"SPD","pct":36.4,"color":"#E3000F"},{"name":"FDP","pct":6.9,"color":"#FFED00"},{"name":"Grüne/B90","pct":7.3,"color":"#1FA12E"},{"name":"PDS","pct":4.4,"color":"#BE3075"}],
+  "1998":[{\n    "name":"SPD","pct":40.9,"color":"#E3000F"},{"name":"CDU/CSU","pct":35.1,"color":"#000000"},{"name":"FDP","pct":6.2,"color":"#FFED00"},{"name":"Grüne/B90","pct":6.7,"color":"#1FA12E"},{"name":"PDS","pct":5.1,"color":"#BE3075"}],
+  "2002":[{"name":"SPD","pct":38.5,"color":"#E3000F"},{"name":"CDU/CSU","pct":38.5,"color":"#000000"},{"name":"FDP","pct":7.4,"color":"#FFED00"},{"name":"Grüne/B90","pct":8.6,"color":"#1FA12E"},{"name":"PDS","pct":4.0,"color":"#BE3075"}],
+  "2005":[{"name":"CDU/CSU","pct":35.2,"color":"#000000"},{"name":"SPD","pct":34.2,"color":"#E3000F"},{"name":"FDP","pct":9.8,"color":"#FFED00"},{"name":"Grüne/B90","pct":8.1,"color":"#1FA12E"},{"name":"Linke/PDS","pct":8.7,"color":"#BE3075"}],
+  "2009":[{"name":"CDU/CSU","pct":33.8,"color":"#000000"},{"name":"SPD","pct":23.0,"color":"#E3000F"},{"name":"FDP","pct":14.6,"color":"#FFED00"},{"name":"Grüne/B90","pct":10.7,"color":"#1FA12E"},{"name":"Linke","pct":11.9,"color":"#BE3075"}],
+  "2013":[{"name":"CDU/CSU","pct":41.5,"color":"#000000"},{"name":"SPD","pct":25.7,"color":"#E3000F"},{"name":"Grüne/B90","pct":8.4,"color":"#1FA12E"},{"name":"Linke","pct":8.6,"color":"#BE3075"},{"name":"AfD","pct":4.7,"color":"#009EE0"}],
+  "2017":[{"name":"CDU/CSU","pct":32.9,"color":"#000000"},{"name":"SPD","pct":20.5,"color":"#E3000F"},{"name":"FDP","pct":10.7,"color":"#FFED00"},{"name":"Grüne/B90","pct":8.9,"color":"#1FA12E"},{"name":"Linke","pct":9.2,"color":"#BE3075"},{"name":"AfD","pct":12.6,"color":"#009EE0"}],
+  "2021":[{"name":"SPD","pct":25.7,"color":"#E3000F"},{"name":"CDU/CSU","pct":24.1,"color":"#000000"},{"name":"Grüne/B90","pct":14.8,"color":"#1FA12E"},{"name":"FDP","pct":11.5,"color":"#FFED00"},{"name":"AfD","pct":10.3,"color":"#009EE0"},{"name":"Linke","pct":4.9,"color":"#BE3075","exception":true}],
+  "2025":[{"name":"CDU/CSU","pct":28.6,"color":"#000000"},{"name":"SPD","pct":16.4,"color":"#E3000F"},{"name":"FDP","pct":4.3,"color":"#FFED00"},{"name":"Grüne/B90","pct":11.6,"color":"#1FA12E"},{"name":"Linke","pct":8.8,"color":"#BE3075"},{"name":"AfD","pct":20.8,"color":"#009EE0"},{"name":"SSW","pct":0.2,"color":"#66CCFF","exception":true}]
+}
+</script>
+
+<script>
+/* ----- Polyfill: CSS.escape (Safari/iOS) ----- */
+if (!window.CSS || typeof CSS.escape !== "function") {
+  window.CSS = window.CSS || {};
+  CSS.escape = function (value) {
+    return String(value)
+      .replace(/[\0-\x1F\x7F]/g, "\uFFFD")
+      .replace(/^[0-9-]/, '\\$&')
+      .replace(/[^a-zA-Z0-9_\u00A0-\uFFFF-]/g, '\\$&');
+  };
+}
+
+/* Koalitions-Presets */
+const PRESETS = {
+  "Schwarz-Rot (Groko)":     ["CDU/CSU","SPD"],
+  "Schwarz-Grün":            ["CDU/CSU","Grüne","Grüne/B90"],
+  "Schwarz-Gelb":            ["CDU/CSU","FDP"],
+  "Jamaika-Koalition":       ["CDU/CSU","FDP","Grüne","Grüne/B90"],
+  "Deutschland-Koalition":   ["CDU/CSU","SPD","FDP"],
+  "Ampel-Koalition":         ["SPD","Grüne","Grüne/B90","FDP"],
+  "Kenia-Koalition":         ["CDU/CSU","SPD","Grüne","Grüne/B90"],
+  "Brombeer-Koalition":      ["SPD","Linke","BSW"],
+  "Rot-Rot-Grün":            ["SPD","Linke","Grüne","Grüne/B90"],
+  "Rot-Grün-Rot":            ["SPD","Linke","Grüne","Grüne/B90"],
+  "Grün-Rot-Rot":            ["SPD","Linke","Grüne","Grüne/B90"],
+  "SPD-BSW":                 ["SPD","BSW"],
+  "Rot-Grün":                ["SPD","Grüne","Grüne/B90"],
+  "Sozialliberale Koalition":["SPD","FDP"],
+  "Grün-Liberale Koalition": ["Grüne","Grüne/B90","FDP"],
+  "Rot-Rote Koalition":      ["SPD","Linke"]
+};
+
+/* Helpers & State */
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+let selectedCoalition = new Set();
+const GREY = "#b7bdc7";
+const norm = n => (n||"").toString().trim().toLowerCase().replace(/\s+/g,"");
+const isOther = name => { const n=norm(name); return n==="andere" || n==="sonstige"; };
+
+/* Defaults */
+const defaultParties = [
+  {name:"CDU/CSU", color:"#000000", pct:28},
+  {name:"SPD",     color:"#E3000F", pct:17},
+  {name:"Grüne",   color:"#1FA12E", pct:12},
+  {name:"FDP",     color:"#FFED00", pct:6},
+  {name:"AfD",     color:"#009EE0", pct:20},
+  {name:"Linke",   color:"#BE3075", pct:6},
+  {name:"BSW",     color:"#FF6A00", pct:7}
+];
+
+/* UI */
+function addPartyRow(p = {name:"Neue Partei", color:"#8888ff", pct:0, exception:false}){
+  const row=document.createElement("div");
+  row.className="party-row";
+  row.innerHTML=`
+    <div class="handle">⋮⋮</div>
+    <input class="pName" type="text" value="${p.name}">
+    <input class="pPct" type="number" value="${p.pct}" min="0" max="100" step="0.1">
+    <input class="pColor" type="color" value="${p.color}">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#a6b0bf">
+      <input type="checkbox" class="pExc" ${p.exception?"checked":""}> Ausnahme
+    </label>
+    <div class="del" title="Entfernen">✕</div>`;
+  row.querySelector(".del").onclick=()=>{ row.remove(); calcAndRender(); };
+  $("#partyList").appendChild(row);
+  row.querySelectorAll("input").forEach(inp=>inp.addEventListener("change", calcAndRender));
+}
+function setPartyList(list){ $("#partyList").innerHTML=""; list.forEach(addPartyRow); }
+function setDefaults(){ setPartyList(defaultParties); selectedCoalition = new Set(); calcAndRender(); }
+
+/* Verfahren */
+function filterByThreshold(parties, threshold, exceptions){
+  return parties.filter(p =>
+    !isOther(p.name) &&
+    p.pct > 0 &&
+    (p.pct >= threshold || p.exception || (exceptions||[]).includes(p.name))
+  );
+}
+function sls(parties,seats){
+  const Q=[]; parties.forEach((p,i)=>{const v=p.pct*1e6; for(let k=0;k<seats+5;k++) Q.push({i,val:v/(k+0.5)})});
+  Q.sort((a,b)=>b.val-a.val); const c=new Array(parties.length).fill(0);
+  Q.slice(0,seats).forEach(q=>c[q.i]++); return c;
+}
+function dhondt(parties,seats){
+  const Q=[]; parties.forEach((p,i)=>{const v=p.pct*1e6; for(let k=1;k<=seats;k++) Q.push({i,val:v/k})});
+  Q.sort((a,b)=>b.val-a.val); const c=new Array(parties.length).fill(0);
+  Q.slice(0,seats).forEach(q=>c[q.i]++); return c;
+}
+function hareNiemeyer(parties,seats){
+  const votes=parties.map(p=>p.pct), total=votes.reduce((a,b)=>a+b,0);
+  if(total===0) return new Array(parties.length).fill(0);
+  const quotas=votes.map(v=>v/total*seats), base=quotas.map(q=>Math.floor(q));
+  let assigned=base.reduce((a,b)=>a+b,0);
+  const rem=quotas.map((q,i)=>({i,r:q-Math.floor(q)})).sort((a,b)=>b.r-a.r);
+  for(let k=0; assigned<seats && k<rem.length; k++){ base[rem[k].i]++; assigned++; }
+  return base;
+}
+function allocateSeats(p,s,m){ if(m==="dhondt") return dhondt(p,s); if(m==="hare") return hareNiemeyer(p,s); return sls(p,s); }
+
+function computeSeats(parties,seats,threshold,exceptions,method){
+  const clean = parties.map(p => isOther(p.name)?{...p,pct:0}:p);
+  const ok = filterByThreshold(clean, threshold, exceptions);
+  const result = clean.map(p=>({...p,seats:0}));
+  if(ok.length){
+    const counts = allocateSeats(ok, seats, method);
+    ok.forEach((p,i)=>{ const j=result.findIndex(q=>q.name===p.name); if(j>=0) result[j].seats = counts[i]; });
+  }
+  result.forEach(p=>{ if(isOther(p.name)) p.seats=0; });
+  return result;
+}
+
+/* Zeichnen & Layout (Halbkreis) */
+function layoutArcs(data,total,sel){
+  const coal = data.filter(p=>p.seats>0 && sel.has(p.name));
+  const rest = data.filter(p=>p.seats>0 && !sel.has(p.name));
+  const ordered = [...coal, ...rest];
+  const sum = ordered.reduce((a,b)=>a+b.seats,0) || total;
+  let start = Math.PI;
+  return ordered.map(p=>{
+    const sweep = (p.seats/sum)*Math.PI;
+    const arc = {name:p.name, color:p.color, fill: sel.has(p.name)?p.color:GREY, start, end:start+sweep};
+    start += sweep;
+    return arc;
+  });
+}
+function arcD(r1,r2,a0,a1){
+  const large=(a1-a0)>Math.PI?1:0;
+  const x0=r1*Math.cos(a0), y0=r1*Math.sin(a0);
+  const x1=r1*Math.cos(a1), y1=r1*Math.sin(a1);
+  const x1i=r2*Math.cos(a1), y1i=r2*Math.sin(a1);
+  const x0i=r2*Math.cos(a0), y0i=r2*Math.sin(a0);
+  return `M${x0} ${y0}A${r1} ${r1} 0 ${large} 1 ${x1} ${y1}L${x1i} ${y1i}A${r2} ${r2} 0 ${large} 0 ${x0i} ${y0i}Z`;
+}
+function drawHalfRing(svg,data,total,sel){
+  const w=900,h=650,cx=w/2,cy=h*0.86;
+  const ringWidth=180, rO=280, rI=rO-ringWidth;
+  svg.innerHTML="";
+  svg.setAttribute("viewBox","0 0 900 650");
+  svg.setAttribute("preserveAspectRatio","xMidYMin meet");
+
+  const g=document.createElementNS("http://www.w3.org/2000/svg","g");
+  g.setAttribute("class","seats");
+  g.setAttribute("transform",`translate(${cx},${cy})`);
+  svg.appendChild(g);
+
+  const arcs=layoutArcs(data,total,sel||new Set());
+  arcs.forEach(a=>{
+    const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+    path.dataset.name=a.name;
+    path.setAttribute("class","arc enter");
+    path.setAttribute("fill",a.fill);
+    path.setAttribute("stroke","rgba(255,255,255,.12)");
+    path.setAttribute("stroke-width","1");
+    path.setAttribute("d", arcD(rO,rI,a.start,a.end));
+    g.appendChild(path);
+    requestAnimationFrame(()=> path.classList.remove("enter"));
+  });
+
+  $("#majorityLbl").textContent = (Math.floor(total/2)+1).toString();
+}
+
+/* Legend & Koalitionen-UI */
+function renderLegend(d){
+  const el=$("#legend"); el.innerHTML="";
+  d.filter(p=>p.seats>0 && !isOther(p.name)).forEach(p=>{
+    const n=document.createElement("div"); n.className="item";
+    n.innerHTML=`<span class="sw" style="background:${p.color}"></span><strong>${p.name}</strong> – ${p.seats} Sitze`;
+    el.appendChild(n);
+  });
+}
+function renderChecklist(d){
+  const wrap=$("#coalitionChecklist"); wrap.innerHTML="";
+  const shown = d.filter(p=>p.seats>0 && !isOther(p.name)).map(p=>p.name);
+  selectedCoalition = new Set([...selectedCoalition].filter(n=>shown.includes(n)));
+  d.filter(p=>p.seats>0 && !isOther(p.name)).forEach(p=>{
+    const lab=document.createElement("label");
+    lab.innerHTML=`<input type="checkbox" data-name="${p.name}" ${selectedCoalition.has(p.name)?"checked":""}>
+                   <span class="sw" style="background:${p.color}"></span> ${p.name} (${p.seats})`;
+    wrap.appendChild(lab);
+  });
+  wrap.querySelectorAll("input[type=checkbox]").forEach(cb=>{
+    cb.addEventListener("change", ()=>{
+      const n=cb.dataset.name;
+      if(cb.checked) selectedCoalition.add(n); else selectedCoalition.delete(n);
+      calcAndRender();
+    });
+  });
+}
+
+/* Koalitionssumme */
+function recomputeCoalitionSum(){
+  const totalSeats = parseInt($("#totalSeats").value)||0;
+  const majority   = Math.floor(totalSeats/2)+1;
+  const data       = window.__lastSeats||[];
+  const sum = data.reduce((a,p)=>a+(selectedCoalition.has(p.name)?(p.seats||0):0),0);
+  $("#coalSeats").textContent = sum;
+  const ok = sum>=majority;
+  $("#coalMajority").textContent = ok ? "ja" : "nein";
+  $("#coalMajority").className   = ok ? "ok" : "bad";
+}
+
+/* History */
+function getHistData(){ try{ return JSON.parse(document.getElementById("HIST_DATA").textContent); }catch(e){ return {}; } }
+function fillHistoryDropdown(){
+  const hist = getHistData();
+  const sel = $("#historyPreset");
+  sel.innerHTML = '<option value="">– wählen –</option>' +
+    Object.keys(hist).sort().map(y=>`<option value="${y}">${y}</option>`).join('');
+}
+function applyHistory(year){
+  const hist=getHistData(); const list=hist[year]; if(!list) return;
+  setPartyList(list); selectedCoalition = new Set(); calcAndRender();
+}
+function parseCSV(text){
+  const rows=text.trim().split(/\r?\n/);
+  return rows.map(r=>{
+    const [name,pct,color,exc] = r.split(",").map(s=>s.trim());
+    return {name, pct:parseFloat(pct)||0, color:color||"#8888ff", exception: String(exc||"").toLowerCase()==="true"};
+  });
+}
+
+/* Haupt-Loop */
+function readInputs(){
+  const partyRows=$$("#partyList .party-row");
+  const parties=partyRows.map(r=>({
+    name:(r.querySelector(".pName").value||"").trim(),
+    color:r.querySelector(".pColor").value,
+    pct:parseFloat(r.querySelector(".pPct").value)||0,
+    exception:r.querySelector(".pExc")?.checked||false
+  }));
+  return {
+    totalSeats: parseInt($("#totalSeats").value)||0,
+    threshold:  parseFloat($("#threshold").value)||0,
+    method:     $("#method").value,
+    exceptions: ($("#exceptions").value||"").split(",").map(s=>s.trim()).filter(Boolean),
+    parties
+  };
+}
+function computeAndOrder(parties,totalSeats,threshold,exceptions,method){
+  const seatsData = computeSeats(parties,totalSeats,threshold,exceptions,method);
+  const shown = seatsData.filter(p => (!isOther(p.name)) && (p.pct >= 2 || (p.seats||0)>0));
+  return shown;
+}
+function calcAndRender(){
+  const {totalSeats,threshold,method,exceptions,parties}=readInputs();
+  const shown = computeAndOrder(parties,totalSeats,threshold,exceptions,method);
+  window.__lastSeats = shown;
+  drawHalfRing($("#seatChart"), shown, totalSeats, selectedCoalition);
+  renderLegend(shown);
+  renderChecklist(shown);
+  $("#majorityLbl").textContent = (Math.floor(totalSeats/2)+1).toString();
+  recomputeCoalitionSum();
+}
+
+/* Events */
+$("#addRowBtn").addEventListener("click", ()=>{ addPartyRow(); calcAndRender(); });
+$("#resetBtn").addEventListener("click", setDefaults);
+$("#calcBtn").addEventListener("click", calcAndRender);
+$("#totalSeats").addEventListener("change", calcAndRender);
+$("#threshold").addEventListener("change", calcAndRender);
+$("#method").addEventListener("change", calcAndRender);
+$("#exceptions").addEventListener("change", calcAndRender);
+
+// Koalitions-Preset
+$("#presetCoalition").addEventListener("change", ()=>{
+  const key = $("#presetCoalition").value;
+  selectedCoalition = key ? new Set(PRESETS[key] || []) : new Set();
+  calcAndRender();
+});
+
+// History
+fillHistoryDropdown();
+$("#loadPresetBtn").addEventListener("click", ()=>{
+  const y = $("#historyPreset").value; if(!y) return;
+  applyHistory(y);
+});
+$("#loadFileBtn").addEventListener("click", async ()=>{
+  const f = $("#historyFile").files[0]; if(!f) return;
+  const txt = await f.text();
+  let list = [];
+  try{
+    if(f.name.endsWith(".json")) list = JSON.parse(txt);
+    else list = parseCSV(txt);
+  }catch(e){ alert("Datei konnte nicht gelesen werden."); return; }
+  setPartyList(list); selectedCoalition=new Set(); calcAndRender();
+});
+
+/* Init */
+setDefaults();
+</script>
+
+<!-- ===== ARD-Prognose OVERLAY – Säulen, per Klick die angeklickte Partei animieren ===== -->
+<div id="forecastOverlay" class="ard-overlay">
+  <div class="ard-panel">
+    <div class="ard-head">
+      <div>
+        <div class="ard-title">Prognose – ARD-Stil (inoffiziell)</div>
+        <div class="ard-sub">Klicke auf eine Säule/Partei, um sie hochfahren zu lassen</div>
+      </div>
+      <button class="ard-btn" id="closeForecast">Schließen</button>
+    </div>
+
+    <div class="ard-progline"></div>
+
+    <div class="ard-colchart">
+      <canvas id="forecastChart" width="1000" height="360"></canvas>
+    </div>
+
+    <div class="ard-foot">
+      <button class="ard-btn secondary" id="resetBars">⟲ Reset</button>
+      <button class="ard-btn" id="openTip" title="Tipp: Klick direkt auf die gewünschte Partei">Klick-Tipp</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===== Prognose-Overlay (Chart.js) – Säulen wachsen bei Klick auf die jeweilige Partei ===== */
+let forecastChart = null;
+let forecastList  = [];
+let animating     = false;
+
+const commaDe = x => Number(x||0).toFixed(1).replace(".", ",");
+
+// Öffnen
+document.getElementById("showArdBtn").addEventListener("click", ()=>{
+  buildForecastData();
+  openForecast();
+});
+document.getElementById("closeForecast").addEventListener("click", ()=> {
+  document.getElementById("forecastOverlay").style.display="none";
+});
+document.getElementById("resetBars").addEventListener("click", resetForecast);
+document.getElementById("openTip").addEventListener("click", ()=>{
+  alert("Tipp: Klicke im Chart auf die gewünschte Partei/Säule, um sie animiert hochzufahren.");
+});
+
+// Daten aus aktuellen Eingaben holen (Reihenfolge = nach Prozent, absteigend)
+function buildForecastData(){
+  const inp = readInputs();
+  forecastList = (inp.parties||[])
+    .filter(p=>p && p.name && !isOther(p.name) && (p.pct||0)>0)
+    .sort((a,b)=>(b.pct||0)-(a.pct||0))
+    .map(p=>({...p, shownPct:0}));
+}
+
+// Overlay öffnen + Chart initialisieren
+function openForecast(){
+  const ov = document.getElementById("forecastOverlay");
+  ov.style.display = "flex";
+  initForecastChart();
+  resetForecast();
+}
+
+// Chart aufsetzen (dicke Balken, kein Rand, Labels außen, weiß; keine Grid-Linien)
+function initForecastChart(){
+  const ctx = document.getElementById("forecastChart");
+  if (forecastChart) { forecastChart.destroy(); }
+  forecastChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: forecastList.map(p => p.name),
+      datasets: [{
+        label: "Prognose",
+        data: forecastList.map(p => p.shownPct),
+        backgroundColor: forecastList.map(p => p.color),
+        borderWidth: 0,               // kein weißer Rand
+        barThickness: 78,             // dicke Balken
+        maxBarThickness: 86,
+        categoryPercentage: 0.60,     // enger zusammen
+        barPercentage: 1.0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,               // manuelle Animation
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          color: "#ffffff",
+          anchor: "end",
+          align: "end",
+          offset: 10,                 // außerhalb über dem Balken
+          font: { weight: "bold", size: 16 },
+          formatter: (value) => value > 0 ? commaDe(value) + " %" : ""
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx)=> `${ctx.label}: ${commaDe(forecastList[ctx.dataIndex].pct)} %`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: "#ffffff", font: { weight: "bold", size: 14 } }
+        },
+        y: {
+          beginAtZero: true,
+          suggestedMax: Math.max(30, Math.ceil(Math.max(...forecastList.map(p=>p.pct)) + 5)),
+          grid: { display:false },
+          ticks: { color:"#ffffff", font:{ size: 12 }, callback: v => v + "%" }
+        }
+      },
+      onClick: (evt) => handleChartClick(evt)   // <- Klick-Handling
+    },
+    plugins: [ChartDataLabels]
+  });
+
+  // Zusätzlich direkt auf das Canvas hören (robust gegen unterschiedliche Hit-Modes)
+  forecastChart.canvas.addEventListener('click', handleChartClick);
+}
+
+// Reset: alles auf 0%
+function resetForecast(){
+  animating = false;
+  forecastList.forEach(p => p.shownPct = 0);
+  if (forecastChart){
+    forecastChart.data.labels = forecastList.map(p=>p.name);
+    forecastChart.data.datasets[0].backgroundColor = forecastList.map(p=>p.color);
+    forecastChart.data.datasets[0].data = forecastList.map(()=>0);
+    forecastChart.update('none');
+  }
+}
+
+// Utility: animiere eine einzelne Säule mit requestAnimationFrame
+function animateBarTo(index, target, duration=900){
+  return new Promise(resolve=>{
+    const startVal = forecastList[index].shownPct || 0;
+    const delta = target - startVal;
+    if (delta <= 0) { // schon voll oder drüber
+      forecastChart.data.datasets[0].data[index] = target;
+      forecastChart.update('none');
+      resolve();
+      return;
+    }
+    const start = performance.now();
+    function tick(now){
+      const t = Math.min(1, (now - start)/duration);
+      const cur = startVal + delta * t;
+      forecastList[index].shownPct = cur;
+      forecastChart.data.datasets[0].data[index] = cur;
+      forecastChart.update('none');
+      if (t < 1) requestAnimationFrame(tick);
+      else {
+        forecastChart.data.datasets[0].data[index] = target;
+        forecastList[index].shownPct = target;
+        forecastChart.update('none');
+        resolve();
+      }
+    }
+    requestAnimationFrame(tick);
+  });
+}
+
+// Klick-Handler: finde die angeklickte Säule und animiere nur diese
+async function handleChartClick(evt){
+  if (!forecastChart || animating) return;
+  // „nearest“ + intersect=true → exakt angeklickte Bar
+  const elems = forecastChart.getElementsAtEventForMode(evt, 'nearest', {intersect:true}, true);
+  if (!elems || !elems.length) return;
+  const idx = elems[0].index;
+  const target = forecastList[idx].pct || 0;
+  if ((forecastList[idx].shownPct||0) >= target) return; // bereits voll
+  animating = true;
+  await animateBarTo(idx, target, 900);
+  animating = false;
+}
+</script>
+
+<!-- Quellenhinweis (optional)
+  Basisdaten: Deutscher Bundestag – „Bundestagswahlergebnisse seit 1949 – Zweitstimmen“.
+  Ergänzungen >2% (z. B. NPD 1969, REP 1990) aus Material der Bundeswahlleiterin.
+-->
+</body>
+</html>
