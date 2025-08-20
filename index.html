@@ -273,11 +273,75 @@ function addPartyRow(p = {name:"Neue Partei", color:"#8888ff", pct:0, exception:
     <div class="del" title="Entfernen">✕</div>`;
   row.querySelector(".del").onclick=()=>{ row.remove(); calcAndRender(); };
   $("#partyList").appendChild(row);
+  setupRowDnD(row);
   row.querySelectorAll("input").forEach(inp=>inp.addEventListener("change", calcAndRender));
 }
 function setPartyList(list){ $("#partyList").innerHTML=""; list.forEach(addPartyRow); }
 function setDefaults(){ setPartyList(defaultParties); selectedCoalition = new Set(); calcAndRender(); }
 
+<script>
+// --- Drag & Drop Reordering ---
+function setupRowDnD(row){
+  row.setAttribute('draggable','true');
+  row.addEventListener('dragstart', onDragStart);
+  row.addEventListener('dragend', onDragEnd);
+}
+
+function onDragStart(e){
+  const row = e.currentTarget;
+  row.classList.add('dragging');
+  // merke ID/Index
+  e.dataTransfer.effectAllowed = 'move';
+  try { e.dataTransfer.setData('text/plain','party-row'); } catch(_) {}
+  // Delegiere an Container
+  const container = document.getElementById('partyList');
+  container.addEventListener('dragover', onDragOver);
+  container.addEventListener('drop', onDrop);
+}
+
+function onDragEnd(e){
+  const row = e.currentTarget;
+  row.classList.remove('dragging');
+  const container = document.getElementById('partyList');
+  container.removeEventListener('dragover', onDragOver);
+  container.removeEventListener('drop', onDrop);
+  // Nach Reorder neu berechnen
+  calcAndRender();
+}
+
+function onDragOver(e){
+  e.preventDefault(); // wichtig, damit Drop möglich ist
+  const container = e.currentTarget;
+  const dragging = container.querySelector('.party-row.dragging');
+  if(!dragging) return;
+
+  const after = getRowAfter(container, e.clientY);
+  if (after == null){
+    container.appendChild(dragging);
+  } else {
+    container.insertBefore(dragging, after);
+  }
+}
+
+function onDrop(e){
+  e.preventDefault();
+  // Reihenfolge ist bereits im DOM angepasst; Ende-Handler macht den Rest
+}
+
+function getRowAfter(container, mouseY){
+  const rows = [...container.querySelectorAll('.party-row:not(.dragging)')];
+  let closest = {offset: Number.NEGATIVE_INFINITY, element: null};
+  rows.forEach(r=>{
+    const box = r.getBoundingClientRect();
+    const offset = mouseY - (box.top + box.height/2);
+    // Wir suchen das Element mit Offset < 0, das am nächsten an der Maus liegt
+    if (offset < 0 && offset > closest.offset){
+      closest = {offset, element:r};
+    }
+  });
+  return closest.element; // null ⇒ ans Ende
+}
+</script>
 /* Verfahren */
 function filterByThreshold(parties, threshold, exceptions){
   return parties.filter(p =>
