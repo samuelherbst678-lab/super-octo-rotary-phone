@@ -76,18 +76,15 @@
   .ard-sub{opacity:.8; font-size:12px}
   .ard-progline{height:2px; background:linear-gradient(90deg,#ffe066,#7cc6ff); opacity:.7; margin:6px 0 10px; border-radius:2px}
   .ard-colchart{display:flex; align-items:flex-end; gap:18px; height:360px; background:rgba(255,255,255,.04);
-    border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:18px}
+    border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:20px}
   .ard-foot{display:flex; gap:8px; justify-content:flex-end; margin-top:12px}
   .ard-btn{border:1px solid rgba(255,255,255,.18); background:#0d2547; color:#eaf2ff; padding:8px 12px; border-radius:10px; cursor:pointer; font-weight:700}
   .ard-btn.secondary{background:#0e1a33}
-
-  /* Canvas: Zeiger bei Hover */
-  #forecastChart{ cursor:pointer; }
 </style>
 </head>
 <body>
   <h1>Koalitionsrechner – Proportionale Sitzverteilung</h1>
-  <p class="sub">Koalitionen testen, Historik 1949–2025. Prognose-Overlay: ARD-artige Säulen – pro Klick fährt genau die angeklickte Partei hoch.</p>
+  <p class="sub">Koalitionen testen, Historik 1949–2025. Prognose-Overlay: ARD-artige Säulen, pro Klick fährt genau eine Säule hoch (Eingabereihenfolge).</p>
 
   <div class="wrap">
     <!-- Eingaben -->
@@ -502,13 +499,13 @@ $("#loadFileBtn").addEventListener("click", async ()=>{
 setDefaults();
 </script>
 
-<!-- ===== ARD-Prognose OVERLAY – NUR SÄULEN, per Klick animiert ===== -->
+<!-- ===== ARD-Prognose OVERLAY – NUR SÄULEN, pro Klick animiert (Eingabereihenfolge) ===== -->
 <div id="forecastOverlay" class="ard-overlay">
   <div class="ard-panel">
     <div class="ard-head">
       <div>
         <div class="ard-title">Prognose – ARD-Stil (inoffiziell)</div>
-        <div class="ard-sub">Basis: deine aktuellen Eingaben – Klick auf eine Säule lässt genau diese hochfahren</div>
+        <div class="ard-sub">Basis: deine aktuellen Eingaben – Säulen wachsen pro Klick</div>
       </div>
       <button class="ard-btn" id="closeForecast">Schließen</button>
     </div>
@@ -527,34 +524,36 @@ setDefaults();
 </div>
 
 <script>
-/* ===== Prognose-Overlay (Chart.js) – Säulen wachsen per Klick (auch einzeln) ===== */
+/* ===== Prognose-Overlay (Chart.js) – Säulen wachsen pro Klick ===== */
 let forecastChart = null;
 let forecastIndex = 0;
 let forecastList  = [];
-let animating = false;
 
 const commaDe = x => Number(x||0).toFixed(1).replace(".", ",");
 
 // Öffnen
 document.getElementById("showArdBtn").addEventListener("click", ()=>{
-  buildForecastData();
+  buildForecastData();   // Eingabereihenfolge, nicht sortieren!
   openForecast();
 });
 document.getElementById("closeForecast").addEventListener("click", ()=> {
   document.getElementById("forecastOverlay").style.display="none";
 });
 document.getElementById("resetBars").addEventListener("click", resetForecast);
-document.getElementById("nextBarBtn").addEventListener("click", animateNextInOrder);
+document.getElementById("nextBarBtn").addEventListener("click", animateNextBar);
+// Bonus: Klick auf Chart animiert ebenfalls nächste Partei
+document.getElementById("forecastChart").addEventListener("click", animateNextBar);
 
-// Daten holen
+// Daten aus aktuellen Eingaben holen – **Eingabereihenfolge**
 function buildForecastData(){
   const inp = readInputs();
+  // Reihenfolge wie in der Liste, keine Sortierung
   forecastList = inp.parties
-    .filter(p=>p && p.name && !isOther(p.name) && (p.pct||0)>0)
-    .sort((a,b)=>(b.pct||0)-(a.pct||0))
+    .filter(p=>p && p.name && !isOther(p.name) && (p.pct||0)>=0)
     .map(p=>({...p, shownPct:0}));
 }
 
+// Overlay öffnen + Chart initialisieren
 function openForecast(){
   const ov = document.getElementById("forecastOverlay");
   ov.style.display = "flex";
@@ -562,7 +561,7 @@ function openForecast(){
   resetForecast();
 }
 
-// Chart aufsetzen: dicke Säulen, kein Rand, keine Gitterlinien, Datalabels OBEN (außerhalb)
+// Chart aufsetzen: dicke Balken, KEINE Ränder, KEINE Grid-Linien, Labels oben draußen, Namen weiß
 function initForecastChart(){
   const ctx = document.getElementById("forecastChart");
   if (forecastChart) { forecastChart.destroy(); }
@@ -574,127 +573,78 @@ function initForecastChart(){
         label: "Prognose",
         data: forecastList.map(p => p.shownPct),
         backgroundColor: forecastList.map(p => p.color),
-        borderWidth: 0,                  // kein Rand
-        barThickness: 72,                // dickere Balken
-        maxBarThickness: 84,
-        categoryPercentage: 0.6,         // mehr Platz/Breite
-        barPercentage: 0.92
+        borderColor: "transparent",   // kein Rand
+        borderWidth: 0,
+        borderSkipped: false,
+        barThickness: 68,             // dicke Balken
+        maxBarThickness: 80,
+        categoryPercentage: 0.66,     // etwas enger
+        barPercentage: 0.90
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      animation: false,                  // wir animieren manuell
+      animation: false,               // wir animieren manuell
       plugins: {
         legend: { display: false },
         datalabels: {
           color: "#ffffff",
-          anchor: "end",
-          align: "top",                  // außerhalb über der Säule
-          offset: 6,
+          anchor: "end",              // an der Oberkante des Balkens
+          align: "end",               // außerhalb oberhalb
+          offset: 8,                  // Abstand nach oben
+          clip: false,                // außerhalb zeichnen erlauben
           font: { weight: "bold", size: 16 },
           formatter: (value) => value > 0 ? commaDe(value) + " %" : ""
-        },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => `${ctx.label}: ${commaDe(ctx.raw)} %`
-          }
         }
       },
       scales: {
         x: {
-          grid: { display: false },      // kein Hintergrund-Gitter
+          grid: { display: false },          // KEINE Linien
           ticks: { color: "#ffffff", font: { weight: "bold", size: 14 } }
         },
         y: {
           beginAtZero: true,
-          suggestedMax: Math.max(30, Math.ceil(Math.max(...forecastList.map(p=>p.pct)) + 5)),
-          grid: { display: false },      // kein Gitter
-          ticks: { color:"#eaf2ff", font:{ size: 12 }, callback: v => v + "%" }
+          suggestedMax: Math.max(30, Math.ceil(Math.max(...forecastList.map(p=>p.pct||0)) + 5)),
+          grid: { display: false },          // KEINE Linien (auch nicht gestrichelt)
+          ticks: { color:"#ffffff", font:{ size: 12 }, callback: v => v + "%" }
         }
-      },
-      // wichtig: Events bleiben aktiv, auch wenn Balken 0% hoch ist
-      onClick: handleChartClick
+      }
     },
     plugins: [ChartDataLabels]
   });
 }
 
-// Reset
+// Reset: alles auf 0%
 function resetForecast(){
   forecastIndex = 0;
   forecastList.forEach(p => p.shownPct = 0);
-  if (!forecastChart) return;
-  forecastChart.data.datasets[0].data = forecastList.map(() => 0);
+  forecastChart.data.datasets[0].data = forecastList.map(p=>0);
   forecastChart.update();
 }
 
-// Nächste Partei in Reihenfolge (Button)
-async function animateNextInOrder(){
-  if (!forecastChart || animating) return;
+// Per Klick fährt die **nächste** Säule hoch (Eingabereihenfolge)
+function animateNextBar(){
+  if (!forecastChart) return;
   if (forecastIndex >= forecastList.length) return;
-  const idx = forecastIndex;
-  const target = forecastList[idx].pct || 0;
-  if ((forecastList[idx].shownPct||0) >= target) { forecastIndex++; return; }
-  animating = true;
-  await animateBarTo(idx, target, 900);
-  animating = false;
-  forecastIndex++;
-}
+  const p = forecastList[forecastIndex];
+  const target = Math.max(0, p.pct||0);
 
-// Klick: genau die angeklickte Partei animieren
-async function handleChartClick(evt){
-  if (!forecastChart || animating) return;
-
-  // Wähle Kategorie nach X-Position, egal ob die Säule 0% hoch ist
-  let elems = forecastChart.getElementsAtEventForMode(
-    evt,
-    'index',
-    { intersect: false },   // ← entscheidend, damit auch bei 0% ein Klick greift
-    true
-  );
-
-  if (!elems || !elems.length) return;
-
-  const idx = elems[0].index;
-  const target = forecastList[idx].pct || 0;
-
-  // schon fertig? Dann nichts tun
-  if ((forecastList[idx].shownPct || 0) >= target) return;
-
-  animating = true;
-  await animateBarTo(idx, target, 900);
-  animating = false;
-
-  // Index für "Weiter"-Button nachziehen (falls man bunt klickt)
-  forecastIndex = Math.max(forecastIndex, idx + 1);
-}
-
-// Sanfte Animation per requestAnimationFrame
-function animateBarTo(index, target, durationMs=900){
-  return new Promise(resolve=>{
-    const start = performance.now();
-    const from = forecastList[index].shownPct || 0;
-    const to   = Math.max(from, target);
-    const ease = t => t<.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
-
-    function frame(now){
-      const t = Math.min(1, (now - start)/durationMs);
-      const k = ease(t);
-      const val = from + (to - from)*k;
-      forecastList[index].shownPct = val;
-      forecastChart.data.datasets[0].data[index] = val;
+  let step = 0;
+  const steps = 30;        // 30 Frames
+  const timer = setInterval(()=>{
+    step++;
+    const cur = target * (step/steps);
+    p.shownPct = cur;
+    forecastChart.data.datasets[0].data[forecastIndex] = cur;
+    forecastChart.update();
+    if (step >= steps){
+      forecastChart.data.datasets[0].data[forecastIndex] = target;
       forecastChart.update();
-      if (t < 1) requestAnimationFrame(frame);
-      else {
-        forecastList[index].shownPct = to;
-        forecastChart.data.datasets[0].data[index] = to;
-        forecastChart.update();
-        resolve();
-      }
+      clearInterval(timer);
+      forecastIndex++;
     }
-    requestAnimationFrame(frame);
-  });
+  }, 40); // 40ms → ~1.2s pro Säule
 }
 </script>
 
